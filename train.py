@@ -6,10 +6,13 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 import torch.optim.lr_scheduler as lr_scheduler
+from visdom import Visdom
+import numpy as np
+import time
 
 root = r"./"
 from model import efficientnet_b0 as create_model
-from dataloader import train_loader, val_loader
+from dataloader import train_loader,val_loader
 from utils import read_split_data, train_one_epoch, evaluate
 
 
@@ -64,42 +67,51 @@ def main(args):
 
     # 用于比较成功率
     best_acc = 0.0
-
+    global_step = 0
     for epoch in range(args.epochs):
         # train
-        mean_loss = train_one_epoch(model=model,
-                                    optimizer=optimizer,
-                                    data_loader=train_loader,
-                                    device=device,
-                                    epoch=epoch)
+        train_loss,train_acc = train_one_epoch(model=model,
+                                               optimizer=optimizer,
+                                               data_loader=train_loader,
+                                               device=device,
+                                               epoch=epoch)
 
         scheduler.step()
 
         # validate
-        acc = evaluate(model=model,
-                       data_loader=val_loader,
-                       device=device)
-        print("[epoch {}] accuracy: {}".format(epoch, round(acc, 3)))
-        tags = ["loss", "accuracy", "learning_rate"]
-        tb_writer.add_scalar(tags[0], mean_loss, epoch)
-        tb_writer.add_scalar(tags[1], acc, epoch)
-        tb_writer.add_scalar(tags[2], optimizer.param_groups[0]["lr"], epoch)
+        val_loss,val_acc = evaluate(model=model,
+                                    data_loader=val_loader,
+                                    device=device,
+                                    epoch=epoch)
+
+        tags = ["train_loss","train_acc","val_loss","val_acc", "learning_rate"]
+        tb_writer.add_scalar(tags[0], train_loss, epoch)
+        tb_writer.add_scalar(tags[1], train_acc, epoch)
+        tb_writer.add_scalar(tags[2],val_loss,epoch)
+        tb_writer.add_scalar(tags[3],val_acc,epoch)
+        tb_writer.add_scalar(tags[4], optimizer.param_groups[0]["lr"], epoch)
+
+
+        viz.line([[train_loss, train_acc]],[global_step],  win='train', update='append')
+        viz.line([[val_loss, val_acc]],[global_step],  win='val', update='append')
+            #  delay time 0. 5s
+        time.sleep(0.5)
 
         torch.save(model.state_dict(), "./weights/model-{}.pth".format(epoch))
 
-        if best_acc < acc:
-            best_acc = acc
+        if best_acc < val_acc:
+            best_acc = val_acc
 
             torch.save(model.state_dict(), "./weights/model-best.pth")
-
+        global_step += 1
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=2)
-    parser.add_argument('--epochs', type=int, default=30)
-    parser.add_argument('--batch-size', type=int, default=16)
-    parser.add_argument('--lr', type=float, default=0.0003)
-    parser.add_argument('--lrf', type=float, default=0.0003)
+    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--lrf', type=float, default=0.01)
 
     # 数据集所在根目录
     # http://download.tensorflow.org/example_images/flower_photos.tgz
@@ -108,10 +120,16 @@ if __name__ == '__main__':
 
     # download model weights
     # 链接: https://pan.baidu.com/s/1ouX0UmjCsmSx3ZrqXbowjw  密码: 090i
-    parser.add_argument('--weights', type=str, default='./efficientnetb0.pth',
+    parser.add_argument('--weights', type=str, default='./weights/model-19.pth',
                         help='initial weights path')
-    parser.add_argument('--freeze-layers', type=bool, default=False)
+    parser.add_argument('--freeze-layers', type=bool, default=True)
     parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
+    viz = Visdom()
+    #  create a window and initialize it （创建监听窗口）
+    viz.line([[0.0,0.0]], [0.], win='train',
+             opts=dict(title='train_loss&train_acc', legend=['train_loss', 'train_acc']))
+    viz.line([[0.0,0.0]], [0.], win='val', opts=dict(title='val_loss&val_acc', legend=['val_loss', 'val_acc']))
+
 
     opt = parser.parse_args()
 
