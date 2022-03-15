@@ -235,7 +235,7 @@ class EfficientNet(nn.Module):
         layers = OrderedDict()
 
         # first conv
-        layers.update({"stem_conv": ConvBNActivation(in_planes=3,
+        layers.update({"stem_conv": ConvBNActivation(in_planes=1,
                                                      out_planes=adjust_channels(32),
                                                      kernel_size=3,
                                                      stride=2,
